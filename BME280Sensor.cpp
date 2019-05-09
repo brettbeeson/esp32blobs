@@ -1,6 +1,6 @@
 #include "BME280Sensor.h"
-#include "Adafruit_CCS811.h"
 #include "OLED.h"
+#include "Adafruit_CCS811.h"
 #include <ArduinoLog.h>
 #include <stdexcept>
 
@@ -36,7 +36,7 @@ void BME280Sensor::begin() {
       throw std::runtime_error("BMXXXXX unknown sensor");
   }
   // calibrate? pressure?
-  OLED.message("BME280Sensor:ok");
+  //OLED.message("BME280Sensor:ok");
 
   readings[PRES]->metric = String("pressure");
   readings[HUM]->metric = String("humidity");

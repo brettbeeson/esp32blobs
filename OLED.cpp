@@ -15,6 +15,9 @@
   (byte & 0x02 ? '1' : '0'), \
   (byte & 0x01 ? '1' : '0')
 
+
+OLEDClass OLED; // global singleton
+
 void OLEDTask(void *OLEDPtr) {
   
   TickType_t xLastWakeTime;
@@ -33,14 +36,59 @@ void OLEDTask(void *OLEDPtr) {
   }
 }
 
+
+OLEDClass::OLEDClass () :
+  _overlays{ msOverlay },
+  _frames { drawFrameConfig, drawFrameMessages, drawFrameReadings},
+  _lastFrameChangeMs(0)
+{
+  static int i=0;
+  assert(++i==1); // singleton
+  pinMode(LED_BUILTIN,OUTPUT);
+  
+}
+
+
+void OLEDClass::begin (int rst, int sda, int scl,  uint8_t address) {
+  
+  Log.verbose("OLED::begin rst:%d sda:%d scl:%d addr:0x%04X frames:%d ", rst, sda, scl, address, framesCount());
+  
+  _rst = rst;
+  _display = new SSD1306(address, sda, scl);  // this is I2C!
+  _ui = new OLEDDisplayUi (_display);
+
+  pinMode(_rst, OUTPUT);
+  digitalWrite(_rst, LOW);    // set GPIO16 low to reset OLED
+  delay(50);
+  digitalWrite(_rst, HIGH); // while OLED is running, must set GPIO16 in high
+  _ui->disableAllIndicators();
+  _ui->setFrames(_frames, framesCount());
+  _ui->setTimePerTransition(0);
+  _ui->disableAutoTransition();
+  _ui->setOverlays(_overlays, overlaysCount());
+
+  Blob::i2cSemaphoreTake(); {
+    Log.warning("Wire.begin() called\n");
+    _ui->init();       // does a  Wire.begin() And can fuck up i2c reads from BME280!
+  } Blob::i2cSemaphoreGive();
+
+  _display->flipScreenVertically();
+  
+  int core = xPortGetCoreID();
+  assert(core == 1);
+  Log.verbose("OLED::OLED Executing on core %d\n", core);
+  xTaskCreatePinnedToCore(OLEDTask, "OLED", 10000 /*stack*/, (void *) this, 1 /* priority */, NULL /* return task handle */, core);
+}
+
+
 int OLEDClass::overlaysCount() {
 
-  return sizeof(overlays) / sizeof(overlays[0]);
+  return sizeof(_overlays) / sizeof(_overlays[0]);
 }
 
 int OLEDClass::framesCount() {
 
-  return sizeof(frames) / sizeof(frames[0]);
+  return sizeof(_frames) / sizeof(_frames[0]);
 }
 
 
@@ -48,14 +96,14 @@ void OLEDClass::drawFrameConfig(OLEDDisplay *display, OLEDDisplayUiState* state,
 
   display->setTextAlignment(TEXT_ALIGN_LEFT);
   display->setFont(ArialMT_Plain_16);
-  display->drawString(0, 10, OLED.configMessage);
+  display->drawString(0, 10, OLED._configMessage);
 }
 
 
 void OLEDClass::nextReading() {
 
-  iReading++;
-  if (iReading == readings.size()) iReading = 0;
+  _iReading++;
+  if (_iReading == _readings.size()) _iReading = 0;
 }
 
 
@@ -64,23 +112,23 @@ void OLEDClass::drawFrameReadings(OLEDDisplay *display, OLEDDisplayUiState* stat
   display->setTextAlignment(TEXT_ALIGN_LEFT);
   display->setFont(ArialMT_Plain_16);
 
-  if (OLED.readings.size() == 0) {
+  if (OLED._readings.size() == 0) {
     display->drawString(0, 10, "No readings");
   } else {
-    if (!OLED.readingsButton && millis() - OLED.lastReadingChangeMs > 3000) {
-      OLED.lastReadingChangeMs = millis();
+    if (!OLED._readingsButton && millis() - OLED._lastReadingChangeMs > 3000) {
+      OLED._lastReadingChangeMs = millis();
       OLED.nextReading();
     }
     display->setFont(ArialMT_Plain_16);
-    display->drawString(0, 10, OLED.readings[OLED.iReading]->metric);
+    display->drawString(0, 10, OLED._readings[OLED._iReading]->metric);
     display->setFont(ArialMT_Plain_24);
-    display->drawString(0, 26, String(OLED.readings[OLED.iReading]->value, 1));
+    display->drawString(0, 26, String(OLED._readings[OLED._iReading]->value, 1));
     display->setTextAlignment(TEXT_ALIGN_RIGHT);
     display->setFont(ArialMT_Plain_16);
-    display->drawString(122, 31, OLED.readings[OLED.iReading]->units);
+    display->drawString(122, 31, OLED._readings[OLED._iReading]->units);
     display->setTextAlignment(TEXT_ALIGN_LEFT);
     display->setFont(ArialMT_Plain_10);
-    display->drawString(0, 50, OLED.readings[OLED.iReading]->id);
+    display->drawString(0, 50, OLED._readings[OLED._iReading]->id);
   }
 }
 
@@ -88,8 +136,8 @@ void OLEDClass::drawFrameMessages(OLEDDisplay *display, OLEDDisplayUiState* stat
 
   display->setFont(ArialMT_Plain_10);
   display->setTextAlignment(TEXT_ALIGN_LEFT);
-  for (int i = 0; i < OLED.activeMessages.size(); i++) {
-    display->drawString(0, i * 10 + 10, *((String *) OLED.activeMessages[OLED.activeMessages.size() - i - 1]));
+  for (int i = 0; i < OLED._activeMessages.size(); i++) {
+    display->drawString(0, i * 10 + 10, *((String *) OLED._activeMessages[OLED._activeMessages.size() - i - 1]));
   }
 }
 
@@ -112,67 +160,29 @@ void OLEDClass::msOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
 */
 void OLEDClass::addReading(Reading *r) {
   assert(r);
-  readings.push_back(r);
+  _readings.push_back(r);
 }
 
 void OLEDClass::clearReadings() {
-  readings.clear();
-}
-
-OLEDClass::OLEDClass (int rst, int sda, int scl,  uint8_t address) :
-  overlays{ msOverlay },
-  frames { drawFrameConfig, drawFrameMessages, drawFrameReadings},
-  lastFrameChangeMs(0),
-  _rst(rst),
-  display(address, sda, scl),  // this is I2C!
-  ui(&display)
-{
-  Log.verbose("OLED: rst:%d sda:%d scl:%d addr:0x%04X frames:%d ", rst, sda, scl, address, framesCount());
-  pinMode(LED_BUILTIN,OUTPUT);
-}
-
-
-void OLEDClass::begin () {
-
-  pinMode(_rst, OUTPUT);
-  digitalWrite(_rst, LOW);    // set GPIO16 low to reset OLED
-  delay(50);
-  digitalWrite(_rst, HIGH); // while OLED is running, must set GPIO16 in high
-  ui.disableAllIndicators();
-  ui.setFrames(frames, framesCount());
-  ui.setTimePerTransition(0);
-  ui.disableAutoTransition();
-  ui.setOverlays(overlays, overlaysCount());
-
-  Blob::i2cSemaphoreTake(); {
-    Log.warning("Wire.begin() called\n");
-    ui.init();       // does a  Wire.begin() And can fuck up i2c reads from BME280!
-  } Blob::i2cSemaphoreGive();
-
-  display.flipScreenVertically();
-  
-  int core = xPortGetCoreID();
-  assert(core == 1);
-  Log.trace("OLED::OLED Executing on core %d\n", core);
-  xTaskCreatePinnedToCore(OLEDTask, "OLED", 10000 /*stack*/, (void *) this, 1 /* priority */, NULL /* return task handle */, core);
+  _readings.clear();
 }
 
 void OLEDClass::off() {
   
-  display.displayOff();
+  _display->displayOff();
   pinMode(_rst, OUTPUT);
   digitalWrite(_rst, LOW);    // set GPIO16 low to reset OLED
   /*
-    display.sendCommand(0x8D); //into charger pump set mode
-    display.sendCommand(0x10); //turn off charger pump
+    _display->sendCommand(0x8D); //into charger pump set mode
+    sendCommand(0x10); //turn off charger pump
     display.sendCommand(0xAE); //set OLED sleep
   */
 }
 
 OLEDClass::~OLEDClass() {
   off();
-  if (framesButton) delete readingsButton; framesButton = NULL;
-  if (readingsButton) delete readingsButton; readingsButton = NULL;
+  if (_framesButton) delete _readingsButton; _framesButton = NULL;
+  if (_readingsButton) delete _readingsButton; _readingsButton = NULL;
 
 }
 
@@ -184,36 +194,37 @@ void OLEDClass:: message(const String m) {
   // Copy the message to store in query. Caller can delete their instance
   // Delete when message is removed from queue
   String* queuedMessage = new String(m);
-  if (activeMessages.isFull()) {
-    String* oldie = activeMessages.pop(); // remove from last plaace
+  if (_activeMessages.isFull()) {
+    String* oldie = _activeMessages.pop(); // remove from last plaace
     delete(oldie);
   }
-  activeMessages.unshift(queuedMessage); // put message into first place
+  _activeMessages.unshift(queuedMessage); // put message into first place
 }
 
 void OLEDClass::setTargetFPS(int fps) {
-  assert(fps > 1000/128); // huh? what? 128 is the max for int8_t, which is returned by update()! fucka
-  ui.setTargetFPS(fps);
+  assert(fps > 1000/128); // huh? what? 128 is the max for int8_t, which is returned by update()! Tricky
+  _ui->setTargetFPS(fps);
   
 }
 void OLEDClass::setFramesToDisplay(uint8_t mask) {
-  framesToDisplay = mask;
+  _framesToDisplay = mask;
   // move to first active
-  while ( ! ((1 << iFrame) & framesToDisplay)) {
-    if (++iFrame >= framesCount()) iFrame = 0;
+  while ( ! ((1 << _iFrame) & _framesToDisplay)) {
+    if (++_iFrame >= framesCount()) _iFrame = 0;
   }
-  ui.switchToFrame(iFrame);
+  _ui->switchToFrame(_iFrame);
 }
 
 /*
    Returns ms to next redraw to meet internal FPS
 */
 int OLEDClass::refresh() {
-  if (!framesButton && millis() - lastFrameChangeMs > 4000) {
-    OLED.lastFrameChangeMs = millis();
+  if (!_framesButton && millis() - _lastFrameChangeMs > 4000) {
+    // OLED.
+    _lastFrameChangeMs = millis();
     nextFrame();
   }
-  return ui.update();
+  return _ui->update();
 }
 
 /**
@@ -224,13 +235,13 @@ int OLEDClass::refresh() {
 void OLEDClass::nextFrame() {
 
   //DPRINTF("framesToDisplay=" BYTE_TO_BINARY_PATTERN, BYTE_TO_BINARY(framesToDisplay));  DPRINTF(" framesCount=%d iFrame=%d\n",framesCount(),iFrame);
-  if (!framesCount() || !framesToDisplay) return;
-  if (++iFrame >= framesCount()) iFrame = 0;
-  while ( ! ((1 << iFrame) & framesToDisplay)) {
+  if (!framesCount() || !_framesToDisplay) return;
+  if (++_iFrame >= framesCount()) _iFrame = 0;
+  while ( ! ((1 << _iFrame) & _framesToDisplay)) {
     //DPRINTF("iFrame=%d, framesToDisplay=" BYTE_TO_BINARY_PATTERN"\n", iFrame,BYTE_TO_BINARY(framesToDisplay));
-    if (++iFrame >= framesCount()) iFrame = 0;
+    if (++_iFrame >= framesCount()) _iFrame = 0;
   }
-  ui.switchToFrame(iFrame);
+  _ui->switchToFrame(_iFrame);
 }
 
 void OLEDClass::disableButtons() {
@@ -243,13 +254,13 @@ void OLEDClass::enableButtons() {
 
 void OLEDClass::setButtons(int framesPin, int readingsPin, int threshold = 40) {
 
-  if (framesButton) delete framesButton;
-  framesButton = new OledFramesButton(this, framesPin, threshold);
-  framesButton->begin();
+  if (_framesButton) delete _framesButton;
+  _framesButton = new OledFramesButton(this, framesPin, threshold);
+  _framesButton->begin();
 
-  if (readingsButton) delete readingsButton;
-  readingsButton = new OledReadingsButton(this, readingsPin, threshold);
-  readingsButton->begin();
+  if (_readingsButton) delete _readingsButton;
+  _readingsButton = new OledReadingsButton(this, readingsPin, threshold);
+  _readingsButton->begin();
 }
 
 OledReadingsButton::OledReadingsButton(OLEDClass *oled, int pin, int threshold ):
@@ -259,14 +270,14 @@ OledReadingsButton::OledReadingsButton(OLEDClass *oled, int pin, int threshold )
 
 void OledReadingsButton::keypressEvent() {
   Log.verbose("OledReadingsButton KeyPress on pin %d\n", _pin);
-  digitalWrite(LED_BUILTIN, 1);
+  digitalWrite(LED_BUILTIN, HIGH);
   OLED.nextReading();
-  _oled->ui.update();
+  _oled->_ui->update();
 
 }
 void OledReadingsButton::keyupEvent() {
   Log.verbose("OledReadingsButton Keyup on pin %d\n", _pin);
-  digitalWrite(LED_BUILTIN, 0);
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
 /**
@@ -282,7 +293,7 @@ void OledFramesButton::keypressEvent() {
   Log.verbose("OledFramesButton KeyPress on pin %d\n", _pin);
   digitalWrite(LED_BUILTIN, 1);
   OLED.nextFrame();
-  _oled->ui.update();
+  _oled->_ui->update();
 
 }
 void OledFramesButton::keyupEvent() {

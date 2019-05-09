@@ -1,6 +1,6 @@
 #include <DallasTemperature.h>
 #include "DSTempSensors.h"
-//#include "OLED.h"
+
 #define MAX_POSSIBLE_SENSORS 10
 
 // temp only
@@ -93,7 +93,6 @@ void DSTempSensors::begin() {
       if (!_sensors.back()._calibrated) {
         Log.warning("No calibration for DS:%s\n", _sensors.back().getAddrCStr());
       }
-      //OLED.message("DST: " + String(_sensors.back().getAddrCStr()).substring(12, 16) + ": " + _sensors.back()._calibration);
     } else {
       Log.warning("Phantom address DS #%d\n", i); //, addrToString(addr).c_str());
     }
@@ -111,7 +110,6 @@ void DSTempSensors::begin() {
     Log.verbose("Sensor % i: Ptr = % d Addr = % s Cali = % f\n", i, &_sensors[i], _sensors[i].getAddrCStr(), _sensors[i]._calibration);
     Log.verbose("Reading % i: Ptr = % d ToStr = % s\n", i, &(readings[i]), readings[i]->tostr().c_str());
   }
-  //  OLED.message("DSTempSensor: found " + String(n));
 }
 /*
   \todo Consider ASYNC to save energy

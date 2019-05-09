@@ -28,16 +28,16 @@ void CCS811Sensor::begin() {
 
   if (!this->ccs->begin()) {
     Log.error("Failed to start CO2 sensor! Please check your wiring.");
-    OLED.message("CCS811Sensor fail");
+    //OLED.message("CCS811Sensor fail");
     while (1);
   }
 
   while (!this->ccs->available()) {
     delay(500);
     Log.trace("Waiting for CCS811Sensor");
-    OLED.message("Waiting for CCS811Sensor");
+    //OLED.message("Waiting for CCS811Sensor");
   }
-  OLED.message("CCS811Sensor ok");
+  //OLED.message("CCS811Sensor ok");
   this->temp = this->ccs->calculateTemperature();
   this->temp = 25;
   Log.verbose("CCS811Sensor::temp=%.2f", temp);
