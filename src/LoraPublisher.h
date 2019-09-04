@@ -16,7 +16,10 @@ void LoraPublisherTask(void*);
 class LoraPublisher : public Publisher {
   public:
     LoraPublisher(Blob *blob);
-    int publish();
+    ~LoraPublisher();
+    bool publishReading(Reading *r);
+       
+
     void begin();
   private:
 

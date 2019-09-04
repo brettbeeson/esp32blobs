@@ -11,6 +11,8 @@ class Reader {
   
   public:
     Reader(Blob* blob);
+    virtual ~Reader() {};
+    virtual void  end();
     virtual void taskify(int readFrequencyMs, int priority);
     // Return -1 on error, 0 on none-to-send, >0 for successful sends
     virtual int read() = 0;
@@ -24,6 +26,8 @@ class Reader {
     QueueHandle_t _readingsQueue = NULL;
     int _readPeriodMs;
     Blob* _blob;
+    TaskHandle_t _taskHandle=0;
+    String _id;
     
   private:
 

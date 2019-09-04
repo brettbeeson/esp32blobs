@@ -6,6 +6,7 @@
 #define READING_STR 64
 
 struct sample_t {
+  bool set;
   time_t t;
   float v;
 } ;
@@ -20,20 +21,20 @@ struct measurement_t {
 /*
    todo:
 */
-class Reading {
+  class Reading {
   public:
 
     Reading(const Reading &r);
     Reading();
     Reading(const measurement_t *m, const sample_t s);
-
+    virtual ~Reading();
     // Set timestamp to now
     void setValue(float v);
     // Specify a timestamp instead of now
     void setValue(float v,time_t t);
     float getValue();
 
-    static const int elements  = 6;
+    static const int elements  = 10;
 
     String metric;          // 2
     String id;              // 3  ED^34324d
@@ -46,12 +47,13 @@ class Reading {
     uint8_t* toJSONBytes(int *len);
     String mqttTopic();
     String mqttValue();
+    //String valueStr(int decimals = 1);
     String valueStr(int decimals = 1, float minimum = NAN, float maximum = NAN);
     String shortStr();
 
     static Reading* fromJSON(String json);
     static Reading* fromJSON(const char* json);
-    static Reading* fromJSONBytes(uint8_t json, int len);
+    static Reading* fromJSONBytes(uint8_t* json, int len);
 
     void clear();
 

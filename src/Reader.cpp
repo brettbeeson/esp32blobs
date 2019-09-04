@@ -1,7 +1,9 @@
 #include "Reader.h"
 #include "Blob.h"
 #include <Arduino.h>
-#include <ArduinoLog.h>
+#include "esp_log.h"
+
+static const char*TAG = "Reader";
 
 
 void ReaderTask(void *_p)
@@ -17,8 +19,8 @@ void ReaderTask(void *_p)
     try {
       p->read();
     } catch (const std::exception& e) {
-      debugE("%s\n",e.what());
-      //OLED.message(e.what());
+      ESP_LOGV(TAG,"%s",e.what());
+      //OLEDUI.message(e.what());
     }
   }
 }
@@ -33,7 +35,14 @@ Reader::Reader(Blob* blob)
 
 void Reader::taskify(int readPeriodMs, int priority) {
   int core = 0;   // run on this core
-  debugV("Starting Reader task\n");
+  ESP_LOGV(TAG,"Starting Reader task");
   _readPeriodMs = readPeriodMs;
-  xTaskCreatePinnedToCore(ReaderTask, "Reader", 10000, (void *) this, priority, NULL /* no handle */, core);
+  xTaskCreatePinnedToCore(ReaderTask, "Reader", 10000, (void *) this, priority, &_taskHandle /* no handle */, core);
+}
+
+void Reader::end() {
+  if (_taskHandle) {
+    vTaskDelete(_taskHandle);
+    _taskHandle=0;
+  }
 }

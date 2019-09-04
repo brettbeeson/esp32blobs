@@ -12,6 +12,7 @@ class MemoryReader : public Reader {
   public:
   
     MemoryReader(Blob* blob);
+    ~MemoryReader();
     int read();
     void begin();
     int nTotalSamples();

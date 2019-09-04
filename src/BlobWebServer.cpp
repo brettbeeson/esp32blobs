@@ -303,7 +303,7 @@ bool BlobWebServer::setup() {
   me->begin();
   Serial.println("HTTP server started");
 
-
+  //NOT PINNED 
   // Check
   xTaskCreate(vWebServer,
               "WebServer",

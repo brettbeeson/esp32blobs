@@ -1,8 +1,14 @@
 #include "LoraReaderPoll.h"
-#include "OLED.h"
+#include "BBEsp32Lib.h"
+#include "OLEDUI.h"
 #include "Reading.h"
 #include "Blob.h"
 #include <Arduino.h>
+
+#undef LOG_LOCAL_LEVEL
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
+#include "esp_log.h"
+static const char *TAG = "LoraReader";
 
 // I think this is okay here - allows task to wait on queue forever
 // better to place in specific rtos header
@@ -54,7 +60,7 @@ void LoraReaderPollReaderTask(void *_l) {
   int flag = 0;
 
   while ( xQueueReceive(l->_packetsAvailable, &flag, portMAX_DELAY) == pdPASS) {
-    debugV("UnBlocked\n");
+    ESP_LOGV(TAG,"UnBlocked");
     int irqFlags = LoRa.readRegister(REG_IRQ_FLAGS);
 
     // clear IRQ's
@@ -66,13 +72,13 @@ void LoraReaderPollReaderTask(void *_l) {
 
       // read packet length
       int packetLength = LoRa._implicitHeaderMode ? LoRa.readRegister(REG_PAYLOAD_LENGTH) : LoRa.readRegister(REG_RX_NB_BYTES);
-      debugV("packetLength: %d\n", packetLength);
+      ESP_LOGV(TAG,"packetLength: %d", packetLength);
       // set FIFO address to current RX address
       LoRa.writeRegister(REG_FIFO_ADDR_PTR, LoRa.readRegister(REG_FIFO_RX_CURRENT_ADDR));
       l->readPacket(packetLength);
       LoRa.writeRegister(REG_FIFO_ADDR_PTR, 0);
     }  else {
-      debugV("CRC error\n");
+      ESP_LOGV(TAG,"CRC error");
     }
   }
 }
@@ -91,11 +97,15 @@ LoraReaderPoll::LoraReaderPoll(Blob* blob, int packetsQueueLength)
   assert(_packetsAvailable);
 }
 
+LoraReaderPoll::~LoraReaderPoll() {
+  assert(0);
+  // not implemented
+}
 // todo check priorities
 void LoraReaderPoll::taskify(int readPeriodMs, int priority)  {
 
   // register a ISR
-  debugV("LoraReaderPoll::taskify\n");
+  ESP_LOGV(TAG,"LoraReaderPoll::taskify");
   pinMode(_dio0, INPUT);
   LoRa.writeRegister(REG_DIO_MAPPING_1, 0x00);
   LoRa._onReceive = NULL;
@@ -133,7 +143,7 @@ void LoraReaderPoll::readPacket(int packetSize) {
   // packetSize = LoRa.parsePacket();
 
   if (packetSize == 0 || packetSize > MAX_PKT_LENGTH) {
-    debugW("Ignoring packet with size=%d (max=%d)\n", packetSize, MAX_PKT_LENGTH);
+    printf("Ignoring packet with size=%d (max=%d)", packetSize, MAX_PKT_LENGTH);
     return;
   }
   // Bad for memory use with a string, apparently "Why Arduino string is evil"
@@ -141,16 +151,16 @@ void LoraReaderPoll::readPacket(int packetSize) {
   for (int i = 0; i < packetSize; i++) {
     packet[i] = char(LoRa.read());    // convert bytes to ascii chars
   }
-  debugV("Packet:%s\n", packet);
+  ESP_LOGV(TAG,"Packet:%s", packet);
   // todo: make a char * instead of String
   // todo: statically allocate queue memory with an segment of MAX_PKT_LENGTH x queuelength
   p = new String(packet);
   assert(p);
-  int rssi = LoRa.packetRssi();
+  //int rssi = LoRa.packetRssi();
   xStatus = xQueueSendToBack(_packetsQueue, &p, 0);   // dequeuer will delete
   if (xStatus != pdPASS) {
-    debugE("Could not send LoRa packet to queue. QueueFull=%d\n", xStatus == errQUEUE_FULL);
-    //OLED.message("LoRa reading lost");
+    ESP_LOGE(TAG,"Could not send LoRa packet to queue. QueueFull=%d", xStatus == errQUEUE_FULL);
+    //OLEDUI.message("LoRa reading lost");
     if (p) delete p; p = 0;
   }
 
@@ -165,27 +175,23 @@ void  LoraReaderPoll::parsePackets() {
   Reading* r;
   String *s; // packet. need to delete after dequeue
   while ( xQueueReceive(this->_packetsQueue, &s, portMAX_DELAY) == pdPASS) {
-    assert(0);
-    // todo: use TimeKeeper
-//    TimeTask.syncToNTP();
     r = Reading::fromJSON(*s);
     if (!r) {
-      OLED.message("Invalid Lora reading");
-      debugE("Couldn't parse a Reading from Lora: %s\n", s->c_str());
+      OLEDUI.message("Invalid Lora reading");
+      ESP_LOGE(TAG,"Couldn't parse a Reading from Lora: %s", s->c_str());
     } else {
       // If no timestamp, apply this. It will be later than real reading, but the best we can do.
       if (r->timestamp == 0) {
-            assert(0);
-    // todo: use TimeKeeper
-
-//        r->timestamp = TimeTask.getTimeRounded(TimestampRoundingS);
+        time_t now = time(NULL);
+        assert(bbesp32lib::timeIsValid());
+        r->timestamp =  bbesp32lib::mround_time_t(now,10);
       }
-      //OLED.message("LoRa:" + r->metric.substring(0, 5) + "=" + r->getValue());
+      //OLEDUI.message("LoRa:" + r->metric.substring(0, 5) + "=" + r->getValue());
       // Pointer to reading is copied. User will delete the object.
       xReadingQueueStatus = xQueueSendToBack(_readingsQueue, &r, pdMS_TO_TICKS(1000) /* timeout */);
       if (xReadingQueueStatus != pdPASS) {
-        debugE("Could not send reading from packet to LoRa queue. QueueFull=%d\n", xReadingQueueStatus == errQUEUE_FULL);
-        OLED.message("LoRa reading lost");
+        ESP_LOGE(TAG,"Could not send reading from packet to LoRa queue. QueueFull=%d", xReadingQueueStatus == errQUEUE_FULL);
+        OLEDUI.message("LoRa reading lost");
         delete(r); r = NULL;
       }
     }

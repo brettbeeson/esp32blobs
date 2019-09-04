@@ -5,6 +5,7 @@
    Adapted by BBeeson
    - need at add batching
    - whitespace tags/fields/etc breaks
+   - convert to ESP-IDF usage
 */
 
 #ifndef INFLUXDB_H

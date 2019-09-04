@@ -13,6 +13,7 @@ class LoraReader : public Reader {
 
   public:
     LoraReader(Blob* blob, int packetsQueueLength = 10);
+    ~LoraReader();
     int read();
     void begin();
     void taskify(int , int );
@@ -25,5 +26,6 @@ class LoraReader : public Reader {
     void parsePackets();
     QueueHandle_t _packetsQueue;
     //volatile int _packetSize;
-    TaskHandle_t _receivePacketsTaskHandle;
+    //TaskHandle_t _receivePacketsTaskHandle;
+    TaskHandle_t _parsePacketsTask = NULL;
 };

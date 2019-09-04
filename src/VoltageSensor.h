@@ -1,5 +1,5 @@
 #pragma once
-#include <Arduino.h>
+//#include <Arduino.h>
 #include "Sensor.h"
 
 //
@@ -19,8 +19,7 @@ class VoltageSensor : public Sensor {
     ~VoltageSensor();
     void begin();
     void read();
-    int nReadings() { return 1; }
-
+    
   private:
 
     float vPin();

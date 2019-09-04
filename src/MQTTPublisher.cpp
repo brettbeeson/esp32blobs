@@ -1,11 +1,11 @@
 #include "MQTTPublisher.h"
-//#include "OLED.h"
+//#include "OLEDUI.h"
 #include "Reading.h"
 #include <Arduino.h>
 
 MQTTPublisher::MQTTPublisher(Blob* blob, WiFiClient wifiClient, String mqttServer, int mqttPort)
   : Publisher(blob),
-    _mqttClient(wifiClient),
+    //_mqttClient(wifiClient),
     _mqttServer(mqttServer),
     _mqttPort(mqttPort)
 {
@@ -45,4 +45,8 @@ void MQTTPublisher::reconnect() {
       delay(5000);
     }
   }
+}
+
+MQTTPublisher::~MQTTPublisher() {
+  Publisher::end();
 }

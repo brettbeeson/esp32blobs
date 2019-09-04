@@ -1,18 +1,11 @@
 #pragma once
-#include <rom/rtc.h>
-#include <freertos/FreeRTOS.h>
 #include <Arduino.h>
-#include <RemoteDebug.h>
-
-#include "LoRa.h"
-#include <SPI.h>
+#include <freertos/FreeRTOS.h>
+#include <rom/rtc.h>
 #include <vector>
-
-extern RemoteDebug Debug;
+#include <stdexcept>
 
 using namespace std;
-
-String resetReasonStr(RESET_REASON reason);
 
 class Controller;
 class Publisher;
@@ -22,85 +15,92 @@ class Reading;
 class BlobWebServer;
 
 class Blob {
-  
-  public:
-  
-    Blob();
-    ~Blob();
-    virtual void begin(int useServicesMask);
-    virtual void begin();
 
-    // Publish current readings and return
-    virtual void publish();
+public:
+  class queue_full : public runtime_error {
 
-    void addReading(Reading *r, int iReadingsQueue = 0);
-    void testBasicFunctions();
-    bool configFromJSON(Stream &s);
-    void readSensors();
-    void readReaders();
-    void adjustControllers();
+    public:
+      queue_full(const char* msg) : runtime_error(msg){}
 
-    String toString();
+      
+    const char *what() const throw() {
+      return "Queue is full.";
+    }
+  };
 
-    void printReadingsQueue(int i = 0);
-    QueueHandle_t readingsQueue(int i);
-    UBaseType_t readingsInQueue(int i=0);
+  enum Event {
+    PublishEvent,
+    UnknownEvent
+  };
 
-    String location = "/blob/default/location/";
-    String id;
-    
-    static void i2cSemaphoreTake();
-    static void i2cSemaphoreGive();
+  Blob();
+  virtual ~Blob();
+  virtual void begin(int useServicesMask);
+  virtual void begin();
+  virtual void end();
+  virtual void refresh();
+  // Return Readings published
+  virtual int publish();
+  // false if queue if full, true if read ok
+  void readSensors(int timeoutMs=1000);
+  void readSensorsTaskify(int priority = 1, int periodMs = 10000);
+  void readReaders();
+  void adjustControllers();
+  void addReading(Reading *r, int iReadingsQueue = 0);
+  String toString();
+  bool configFromJSON(Stream &s);
 
-    void add(Publisher *p);
-    void add(Reader *r);
-    void add(Controller *c);
-    void add(Sensor *s);
+  void testBasicFunctions();
+  void raiseEvent(Event e){};
+  void printReadingsQueue(int i = 0);
+  void printReadings();
+  QueueHandle_t readingsQueue(int i);
+  UBaseType_t readingsInQueue(int i = 0);
 
-    void remove(Publisher *p);
-    void remove(Reader *r);
-    void remove(Controller *c);
-    void remove(Sensor *s);
+  String location = "default";
+  String id;
 
-    static const unsigned int USE_I2C =  1 << 0;
-    static const unsigned int USE_SD =   1 << 1;
-    static const unsigned int USE_WIFI =  1 << 2;
-    static const unsigned int USE_LORA = 1 << 3;
-    static const unsigned int USE_HTTPD = 1 << 4;
+  void add(Publisher *p);
+  void add(Reader *r);
+  void add(Controller *c);
+  void add(Sensor *s);
 
-    int wifiAPWaitMs=0;
+  void remove(Publisher *p);
+  void remove(Reader *r);
+  void remove(Controller *c);
+  void remove(Sensor *s);
 
-  protected:
+  static const unsigned int USE_I2C = 1 << 0;
+  static const unsigned int USE_SD = 1 << 1;
 
-    Publisher *publisher=NULL;
-    Reader* _reader=NULL;
-    vector<Sensor *> sensors;
-    vector<Controller *> controllers;
-    
+  static const unsigned int USE_LORA = 1 << 3;
+  static const unsigned int USE_HTTPD = 1 << 4;
 
-    static String getMacStr();
+  friend void ReadSensorsTask(void *);
 
-    void setupVoltageMeasurement();
+protected:
+  Publisher *publisher = NULL;
+  Reader *_reader = NULL;
+  vector<Sensor *> sensors;
+  vector<Controller *> controllers;
 
-  private:
-    BlobWebServer* webserver=NULL;
-    int useServicesMask;
-    static int scanI2C();
-    bool testSDCard();
-    bool testLora();
-    static SemaphoreHandle_t i2cSemaphore;
+  static String getMacStr();
 
-    QueueHandle_t _readingsQueue0;
-    QueueHandle_t _readingsQueue1;
+  void setupVoltageMeasurement();
 
-    void setupI2CBus();
-    void setupSDCard();
-    void setupLora();
-    void setupWebServer();
-    // Setup global Wifi. Throw if cannot connect. Wait forever (default), or waitS seconds for the config AP portal.
-    void setupWiFi();
+private:
+  int _readSensorsTaskPeriod = 10000;
+  int useServicesMask;
 
+  bool testSDCard();
+  bool testLora();
+  static SemaphoreHandle_t i2cSemaphore;
 
+  QueueHandle_t _readingsQueue0;
+  QueueHandle_t _readingsQueue1;
 
-
+  void setupI2CBus();
+  void setupSDCard();
+  void setupLora();
+  void setupWebServer();
 };

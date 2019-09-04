@@ -7,6 +7,7 @@
 class CCS811Sensor : public Sensor {
   public:
     CCS811Sensor(Blob *blob);
+    ~CCS811Sensor();
     void begin();
     void read();
     const byte ECO2 = 0;
@@ -17,5 +18,5 @@ class CCS811Sensor : public Sensor {
   private:
     Adafruit_CCS811 *ccs;
     float temp;
-    int nReadings();
+  
 };

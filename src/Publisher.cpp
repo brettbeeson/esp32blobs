@@ -1,39 +1,83 @@
 
-#define INCLUDE_vTaskSuspend                    1
+#define INCLUDE_vTaskSuspend 1
 
 #include "Publisher.h"
 #include "Reading.h"
 #include <Arduino.h>
 
-void PublisherTask(void *_p)
-{
-  Publisher* p = (Publisher *) _p;
+#undef LOG_LOCAL_LEVEL
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
+#include "esp_log.h"
+static const char *TAG = "Publisher";
+
+void PublisherTask(void *_p) {
+  Publisher *p = (Publisher *)_p;
 
   for (;;) {
-    p->publishReadings(true);
+    try {
+      Reading *readingPtr = NULL;
+      BaseType_t xStatus;
+      // Block until something in the queue
+      xStatus = xQueuePeek(p->_blob->readingsQueue(0), &(readingPtr), portMAX_DELAY);
+      assert(xStatus == pdTRUE);
+        xEventGroupClearBits(p->_state, Publisher::STATE_IDLE);
+        p->publishReadings();
+        xEventGroupSetBits(p->_state, Publisher::STATE_IDLE);
+    } catch (const exception &e) {
+      ESP_LOGE(TAG, "PublisherTask exception: %s", e.what());
+      vTaskDelay(pdMS_TO_TICKS(60000));
+    }
   }
 }
 
-Publisher::Publisher(Blob * blob):
-  _blob(blob)
-{
+Publisher::Publisher(Blob *blob) : _blob(blob) {
   blob->add(this);
+  _state = xEventGroupCreate();
+  assert(_state);
 }
 
 Publisher::~Publisher() {
-  if (_publishTask) {
-    debugV("Stopping _publishTask\n");
-    vTaskDelete(_publishTask);
+  assert(!_publishTask); // must call ::end before destruction
+}
+
+void Publisher::taskify(int priority) {
+  int core = 1; // run on this core
+  ESP_LOGI(TAG, "Starting Publisher task in core %d", core);
+   xTaskCreatePinnedToCore(PublisherTask, "PublisherTask", 10000, (void *)this,
+                        priority, &_publishTask /* handle */, core);
+  //xTaskCreate(PublisherTask, "Publisher", 10000, (void *)this, priority,
+  //            &_publishTask /* handle */);
+}
+
+void Publisher::waitUntilPublished() {
+  
+  EventBits_t uxBits;
+  for (;;) {
+    // block until we are IDLE ...
+    uxBits = xEventGroupWaitBits(_state, STATE_IDLE, false, true, portMAX_DELAY);
+    assert(uxBits & STATE_IDLE);
+    // if not more items to publish ...
+    if (uxQueueMessagesWaiting(_blob->readingsQueue(0)) == 0) {
+      // if  PublisherTask didn't *just* empty the queue, we're finished
+      if (xEventGroupWaitBits(_state, STATE_IDLE, false, true, 0) & STATE_IDLE) {
+        return;
+      }
+    }
   }
 }
 
-
-void Publisher::taskify(int priority) {
-  int core = 0;   // run on this core
-  debugV("Starting Publisher task in core %d\n", core);
-  xTaskCreatePinnedToCore(PublisherTask, "Publisher", 10000, (void *) this, priority, &_publishTask /*no handle */, core);
+void Publisher::end() {
+  if (_publishTask) {
+    while (eTaskGetState(_publishTask) == eRunning) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      ESP_LOGV(TAG, "Waiting for task to idle.");
+    }
+    vTaskDelete(_publishTask);
+    _publishTask = 0;
+    vTaskDelay(pdMS_TO_TICKS(10));
+    ESP_LOGV(TAG, "Stopped task.");
+  }
 }
-
 
 eTaskState Publisher::taskState() {
 
@@ -41,35 +85,40 @@ eTaskState Publisher::taskState() {
   return eTaskGetState(_publishTask);
 }
 
-
 /*
  * Publish all available
  */
-int Publisher::publishReadings(bool block)
-{
+int Publisher::publishReadings() {
   BaseType_t xStatus = pdPASS;
-  Reading* r = NULL;
+  Reading *r = NULL;
   TickType_t xTicksToWait;
-  int nPublished=0;
+  int nPublished = 0;
 
-  xTicksToWait = (block ? portMAX_DELAY : 0);
-  
   while (xStatus == pdPASS) {
-    xStatus = xQueueReceive(_readingsQueue, &r, xTicksToWait);
+    xStatus = xQueueReceive(_readingsQueue, &r, 0);
     if (xStatus == pdPASS) {
+      ESP_LOGV(TAG, "Publishing reading:%s", r->tostr().c_str());
       if (publishReading(r)) {
         nPublished++;
-        if (r) delete r; r = NULL;
+        _blob->raiseEvent(Blob::PublishEvent);
+        if (r) {
+          delete r;
+          r = NULL;
+        }
       } else {
-        debugE("Couldn't publish reading!\n");
-        if (r) delete r; r = NULL;
+        ESP_LOGW(TAG, "Can't publish reading:%s", r->tostr().c_str());
+        if (r) {
+          delete r;
+          r = NULL;
+        }
         // retain reading - should push_back
         // todo
       }
     } else {
-      //debugV("Nothing to publish.block=%d xStatus = %d\n",block,xStatus);
+      ESP_LOGV(TAG, "Nothing to publish. xStatus = %d", xStatus);
     }
   }
-  //if (nPublished) debugV("Published %d\n", nPublished);
+  if (nPublished)
+    ESP_LOGV(TAG, "Published %d", nPublished);
   return nPublished;
 }

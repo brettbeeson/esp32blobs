@@ -16,10 +16,8 @@ class BME280Sensor : public Sensor {
     const byte HUM = 2;
 
   protected:
-    bool usesI2C() {
-      return true;
-    }
+    
   private:
     BME280I2C bme;    // Default : forced mode, standby time = 1000 ms; versampling = pressure ×1, temperature ×1, humidity ×1, filter off,
-    int nReadings();
+    
 };

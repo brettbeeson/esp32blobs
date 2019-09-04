@@ -13,6 +13,7 @@ class LoraReaderPoll : public Reader {
 
   public:
     LoraReaderPoll(Blob* blob, int packetsQueueLength = 10);
+    ~LoraReaderPoll();
     int read();
     void begin();
     void taskify(int , int );

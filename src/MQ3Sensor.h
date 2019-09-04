@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Arduino.h>
 #include "Sensor.h"
 
 class MQ3Sensor : public Sensor {
@@ -15,6 +14,6 @@ class MQ3Sensor : public Sensor {
     int _pin;
     float rawReading;
     float percentReading;
-    int nReadings();
+    
 
 };

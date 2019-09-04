@@ -1,7 +1,9 @@
 #include "Blob.h"
 #include "Controller.h"
 #include <stdexcept>
-#include <RemoteDebug.h>
+#include "esp_log.h"
+
+static const char* TAG = "Controller";
 
 void ControllerAdjustTask(void *controllerPtr) {
   TickType_t xLastWakeTime;
@@ -12,16 +14,22 @@ void ControllerAdjustTask(void *controllerPtr) {
 
   for (;;) {
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(c->_taskPeriodMs));
-    debugV("SensorReadTask");
+    ESP_LOGV(TAG,"ControllerAdjustTask");
     try {
       c->adjust();
     } catch (const std::runtime_error& e) {
-      debugE("Failed SensorReadTask. Exception: %s",e.what());
+      ESP_LOGE(TAG,"Failed ControllerAdjustTask. Exception: %s",e.what());
     }
   }
 }
 
-Controller ::Controller () {
+Controller ::Controller (Blob* blob) : _blob(blob) {
+  _blob->add(this);
+}
+
+
+Controller ::~Controller () {
+  assert(!_taskHandle);
 }
 
 String Controller:: toString() {
@@ -31,6 +39,11 @@ String Controller:: toString() {
 void Controller::taskify(int taskPeriodMs, int priority, int stackDepth) {
   _taskPeriodMs = taskPeriodMs;
   int core = xPortGetCoreID();
-  debugV("Controller executing on core %d", core);
+  ESP_LOGV(TAG,"Controller executing on core %d", core);
   xTaskCreatePinnedToCore(ControllerAdjustTask, "Controller", stackDepth, (void *) this, priority, NULL /* task handle */, core);
+}
+
+void Controller::end() {
+  vTaskDelete(_taskHandle);
+  _taskHandle=NULL;
 }

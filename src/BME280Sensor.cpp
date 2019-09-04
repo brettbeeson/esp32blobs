@@ -1,20 +1,22 @@
 #include "BME280Sensor.h"
-#include "Adafruit_CCS811.h"
+
 #include "Blob.h"
-#include <ArduinoLog.h>
+#include "I2CManager.h"
+
 #include <stdexcept>
+
+#undef LOG_LOCAL_LEVEL
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
+#include "esp_log.h"
+static const char *TAG = "BMS280Sensor";
 
 BME280Sensor::BME280Sensor(Blob* blob) :
   Sensor (blob) {
 }
 
-int BME280Sensor::nReadings() {
-  return 3;
-}
 void BME280Sensor::begin() {
-
-  Sensor::begin();
-  debugI("BME280Sensor::begin");
+  Sensor::begin(3);
+  ESP_LOGV(TAG,"BME280Sensor::begin");
 
   int i;
   for (i = 0; i < 10 && !bme.begin(); i++) {
@@ -27,16 +29,16 @@ void BME280Sensor::begin() {
 
   switch (bme.chipModel())  {
     case BME280::ChipModel_BME280:
-      debugV("BME280");
+      ESP_LOGI(TAG,"BME280");
       break;
     case BME280::ChipModel_BMP280:
-      debugV("BMP280 without humidity.");
+      ESP_LOGI(TAG,"BMP280 without humidity.");
       break;
     default:
       throw std::runtime_error("BMXXXXX unknown sensor");
   }
   // calibrate? pressure?
-  //OLED.message("BME280Sensor:ok");
+  //OLEDUI.message("BME280Sensor:ok");
   readings[PRES]->id = _blob->id + "-pressure";
   readings[PRES]->metric = String("pressure");
   readings[PRES]->units = String("Pa");
@@ -55,10 +57,10 @@ void BME280Sensor::read() {
   float hum = NAN;
   float pres = NAN;
 
-  Blob::i2cSemaphoreTake();
+  I2CManager.take();
   bme.read(pres, temp, hum, tempUnit, presUnit);
-  Blob::i2cSemaphoreGive();
-  debugV("BME280Sensor::read pres %.2f temp %.2f hum %.2f\n", pres, temp, hum);
+  I2CManager.give();
+  ESP_LOGV(TAG,"BME280Sensor::read pres %.2f temp %.2f hum %.2f", pres, temp, hum);
 
   readings[PRES]->setValue(  pres);
   readings[HUM]->setValue ( hum);
@@ -67,8 +69,5 @@ void BME280Sensor::read() {
 }
 
 BME280Sensor::~BME280Sensor() {
-  for (int i = 0; i < nReadings(); i++) {
-    if (this->readings[i]) delete(this->readings[i]); this->readings[i] = NULL;
+  Sensor::end();
   }
-  this->readings = NULL;
-}

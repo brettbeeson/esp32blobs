@@ -11,6 +11,7 @@
 class MQTTPublisher : public Publisher {
   public:
     MQTTPublisher(Blob* blob,WiFiClient wifiClient,String mqttServer, int mqttPort);
+    ~MQTTPublisher();
     void begin();
     bool  publishReading(Reading *);
     

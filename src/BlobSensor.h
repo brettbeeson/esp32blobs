@@ -8,13 +8,14 @@
  */
 class BlobSensor : public Sensor {
   public:
-    BlobSensor(Blob* blob);
+    BlobSensor(Blob* blob,int *bootCountRTCPtr=0);
+    ~BlobSensor();
     void begin();
     void read();
-    int nReadings();
-  
-  private:
     
+      
+  private:
+    int *_bootCountRTCPtr=0;
     
     
 };

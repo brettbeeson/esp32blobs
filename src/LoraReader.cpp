@@ -3,7 +3,9 @@
 #include "Blob.h"
 #include <Arduino.h>
 #include <stdexcept>
+#include "esp_log.h"
 
+static const char *TAG = "LoraReader";
 // I think this is okay here - allows task to wait on queue forever
 #define INCLUDE_vTaskSuspend                    1
 
@@ -41,11 +43,19 @@ LoraReader::LoraReader(Blob* blob, int packetsQueueLength)
   _packetsQueue = xQueueCreate(packetsQueueLength, sizeof(String *));
 }
 
+LoraReader::~LoraReader() {
+  Reader::end();
+  vTaskDelete(_parsePacketsTask);
+  _parsePacketsTask=NULL;
+}
+
+
 // todo check priorities
 void LoraReader::taskify(int parsePeriodMs /* ignored*/, int priority)  {
   LoRa.onReceive(LoraReaderPacketsAvailableISR);
   // Blocked on packets-to-parse queue. Can be lower priority?
-  xTaskCreate(LoraReaderParserTask, "LoraReaderParserTask", 10000 /*stack*/, this, 1 , NULL );
+  ESP_LOGI(TAG,"NOT PINNING: LoraReaderParserTask");
+  xTaskCreate(LoraReaderParserTask, "LoraReaderParserTask", 10000 /*stack*/, this, 1 , &_parsePacketsTask );
   LoRa.receive();
 }
 
@@ -68,7 +78,7 @@ void LoraReader::receivePackets(int packetSize) {
   BaseType_t xStatus;
 
   if (packetSize > MAX_PKT_LENGTH) {
-    debugW("Ignoring packet with size=%d max=%d\n", packetSize, MAX_PKT_LENGTH);
+    ESP_LOGW(TAG,"Ignoring packet with size=%d max=%d", packetSize, MAX_PKT_LENGTH);
     return;
   }
   // Bad for memory use with a string, apparently "Why Arduino string is evil"
@@ -76,14 +86,14 @@ void LoraReader::receivePackets(int packetSize) {
   for (int i = 0; i < packetSize; i++) {
     packet[i] = char(LoRa.read());    // convert bytes to ascii chars
   }
-  //debugV("Packet:%s\n",packet);
+  //ESP_LOGV(TAG,"Packet:%s",packet);
   // todo: make a char * instead of String
   p = new String(packet);
   rssi = LoRa.packetRssi();
   xStatus = xQueueSendToBack(_packetsQueue, &p, 0);   // dequeuer will delete
   if (xStatus != pdPASS) {
-    debugE("Could not send LoRa packet to queue. QueueFull=%d\n", xStatus == errQUEUE_FULL);
-    //OLED.message("LoRa reading lost");
+    ESP_LOGE(TAG,"Could not send LoRa packet to queue. QueueFull=%d", xStatus == errQUEUE_FULL);
+    //OLEDUI.message("LoRa reading lost");
     if (p) delete p; p = 0;
   }
 
@@ -104,20 +114,20 @@ void  LoraReader::parsePackets() {
 //    TimeTask.syncToNTP();
     r = Reading::fromJSON(*s);
     if (!r) {
-      //OLED.message("Invalid Lora reading");
-      debugE("Couldn't parse a Reading from Lora: %s\n", s->c_str());
+      //OLEDUI.message("Invalid Lora reading");
+      ESP_LOGE(TAG,"Couldn't parse a Reading from Lora: %s", s->c_str());
     } else {
       // If no timestamp, apply this. It will be later than real reading, but the best we can do.
       if (r->timestamp == 0) {
         assert(0);
         //r->timestamp = TimeTask.getTimeRounded(TimestampRoundingS);
       }
-      //OLED.message("LoRa:" + r->metric.substring(0, 5) + "=" + r->getValue());
+      //OLEDUI.message("LoRa:" + r->metric.substring(0, 5) + "=" + r->getValue());
       // Pointer to reading is copied. User will delete the object.
       xReadingQueueStatus = xQueueSendToBack(_readingsQueue, &r, pdMS_TO_TICKS(1000) /* timeout */);
       if (xReadingQueueStatus != pdPASS) {
-        debugE("Could not send reading from packet to LoRa queue. QueueFull=%d\n", xReadingQueueStatus == errQUEUE_FULL);
-        //OLED.message("LoRa reading lost");
+        ESP_LOGE(TAG,"Could not send reading from packet to LoRa queue. QueueFull=%d", xReadingQueueStatus == errQUEUE_FULL);
+        //OLEDUI.message("LoRa reading lost");
         delete(r); r = NULL;
       }
     }

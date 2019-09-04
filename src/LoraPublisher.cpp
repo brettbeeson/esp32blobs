@@ -1,43 +1,31 @@
-#include "Blob.h"
-#include "OLED.h"
 #include "LoraPublisher.h"
+#include "Reading.h"
+#include "Blob.h"
+#include "LoRa.h"
+#include "OLEDUI.h"
 #include <Arduino.h>
 
-LoraPublisher::LoraPublisher(Blob* blob)
-  : Publisher(blob)
-{}
+#undef LOG_LOCAL_LEVEL
+#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
+#include "esp_log.h"
+static const char *TAG = "LoraPublisher";
 
+LoraPublisher::LoraPublisher(Blob *blob) : Publisher(blob) {}
 
+LoraPublisher::~LoraPublisher() { Publisher::end(); }
 void LoraPublisher::begin() {
-  // check lora is running  
+  // check lora is running
 }
 
+bool LoraPublisher::publishReading(Reading *r) {
 
-int LoraPublisher::publish() {
+  OLEDUI.disableButtons(); // Lora stuffs the capacitance touch
 
-  BaseType_t xStatus = pdPASS;
-  Reading* r;
-  int nReadings;
-  const TickType_t xTicksToWait = pdMS_TO_TICKS(10);
-  int nPublished=0;
+  assert(LoRa.beginPacket() == 1);
+  LoRa.print(r->toJSON());
+  LoRa.endPacket(false); // blocks until sen
 
-  nReadings = uxQueueMessagesWaiting(this->_readingsQueue);
-  if (nReadings > 0) {
-    debugV("Publishing the queue of %d readings\n", nReadings);
-  }
-  OLED.disableButtons();  // Lora stuffs the capacitance touch
-
-  while (xStatus == pdPASS) {
-    xStatus = xQueueReceive(this->_readingsQueue, &r, xTicksToWait);
-    if (xStatus == pdPASS) {
-      assert(LoRa.beginPacket() == 1);
-      LoRa.print(r->toJSON());
-      LoRa.endPacket(false);       // blocks until sen
-      nPublished++;
-      //Serial.println(r->toJSON());
-      delete r; r = NULL;
-    }
-  }
-  OLED.enableButtons();
-  return nPublished;
+  ESP_LOGV(TAG,"LoRa: %s",r->toJSON().c_str());
+  OLEDUI.enableButtons();
+  return true;
 }
